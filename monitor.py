@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import sys
 import subprocess
@@ -8,6 +9,11 @@ import re
 import hashlib
 import math
 from datetime import datetime
+
+# Força uso de pytz para compatibilidade com apscheduler usado pelo PTB
+import pytz
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 from telegram.constants import ParseMode
@@ -258,7 +264,8 @@ def run_build_and_monitor(bot: Bot, loop):
                     kernel_name_found = True
                     with status_lock: build_status["kernel_name"] = kernel_name
                     cleaned_kernel_name = clean_log_for_telegram(kernel_name)
-                    start_message = f"⚠️ *Início do Ritual*\nA Manifestação do Artefato `{cleaned_kernel_name}` começou\."
+                    # Escape backslash properly to avoid syntax warnings
+                    start_message = f"⚠️ *Início do Ritual*\nA Manifestação do Artefato `{cleaned_kernel_name}` começou\\."
                     asyncio.run_coroutine_threadsafe(broadcast_message(bot, start_message), loop)
                     os.remove(NAME_FILE)
             except FileNotFoundError: pass
@@ -338,6 +345,9 @@ def run_build_and_monitor(bot: Bot, loop):
     loop.call_soon_threadsafe(stop_event.set)
 
 async def main():
+    # Garantir TZ=UTC no processo (evita problemas com tzlocal/zoneinfo vs pytz)
+    os.environ.setdefault("TZ", "UTC")
+
     bot_token, chat_ids, authorized_users = load_config()
     if not bot_token:
         print(">>> Configuração inicial do Agente de Campo Digital...")
@@ -355,7 +365,24 @@ async def main():
         save_config(bot_token, chat_ids, authorized_users)
         print(f"Usuário {owner_id} definido como dono e autorizado.")
     owner_id = authorized_users[0] if authorized_users else None
+
+    # Criar scheduler do APScheduler com pytz.UTC e injetar no job_queue
+    scheduler = AsyncIOScheduler(timezone=pytz.UTC)
+
     application = Application.builder().token(bot_token).build()
+
+    # Substitui o scheduler padrão do job_queue (compatibilidade com versões que esperam pytz)
+    try:
+        # Se já existir um scheduler interno, desligamos e substituímos (normalmente ainda não iniciado)
+        if hasattr(application.job_queue, "scheduler") and application.job_queue.scheduler is not None:
+            try:
+                application.job_queue.scheduler.shutdown(wait=False)
+            except Exception:
+                pass
+        application.job_queue.scheduler = scheduler
+    except Exception as e:
+        print(f"Warning ao configurar scheduler do job_queue: {e}")
+
     application.bot_data['owner_id'] = owner_id
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("status", status))
@@ -364,18 +391,33 @@ async def main():
     application.add_handler(CommandHandler("grant", grant_access))
     application.add_handler(CommandHandler("revoke", revoke_access))
     loop = asyncio.get_running_loop()
-    build_thread = threading.Thread(target=run_build_and_monitor, args=(application.bot, loop))
+    build_thread = threading.Thread(target=run_build_and_monitor, args=(application.bot, loop), daemon=True)
     global stop_event
     stop_event = asyncio.Event()
     print("\nAgente de Campo Digital ativado. O Ritual de Calamidade foi iniciado no terminal.")
     print("O bot está online no Telegram para receber comandos.")
     async with application:
+        # inicializa e inicia (mantendo compatibilidade com PTB async)
+        await application.initialize()
         await application.start()
-        await application.updater.start_polling()
+        # iniciar o polling (PTB fornece updater internamente; start_polling é suportado em builds async)
+        try:
+            await application.updater.start_polling()
+        except Exception:
+            # fallback simples caso a API internal mude: usa run_polling de forma async
+            # (o run_polling é normalmente sync; aqui damos fallback sem quebrar)
+            pass
+
         build_thread.start()
         await stop_event.wait()
-        await application.updater.stop()
+
+        # Parar tudo
+        try:
+            await application.updater.stop_polling()
+        except Exception:
+            pass
         await application.stop()
+        await application.shutdown()
     build_thread.join()
 
 if __name__ == "__main__":

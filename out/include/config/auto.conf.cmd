@@ -1361,10 +1361,13 @@ endif
 ifneq "$(OBJCOPY)" "llvm-objcopy"
 include/config/auto.conf: FORCE
 endif
-ifneq "$(CLANG_FLAGS)" "--target=aarch64-linux-gnu --prefix=/home/neroki/proton-clang/bin/aarch64-linux-gnu- --gcc-toolchain=/home/neroki/proton-clang -no-integrated-as -Werror=unknown-warning-option  -Wno-unsequenced"
+ifneq "$(CLANG_FLAGS)" "--target=aarch64-linux-gnu --prefix=/home/neroki/proton-clang/bin/aarch64-linux-gnu- --gcc-toolchain=/home/neroki/proton-clang -Werror=unknown-warning-option  -Wno-unsequenced"
 include/config/auto.conf: FORCE
 endif
 ifneq "$(SRCARCH)" "arm64"
+include/config/auto.conf: FORCE
+endif
+ifneq "$(CROSS_COMPILE_COMPAT)" "arm-linux-gnueabi-"
 include/config/auto.conf: FORCE
 endif
 ifneq "$(HOSTCXX)" "clang++"

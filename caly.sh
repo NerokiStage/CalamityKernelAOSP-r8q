@@ -15,7 +15,7 @@ DEFAULT="\e[0m"
 
 clear
 echo -e "${PURPLE}=======================================================${DEFAULT}"
-echo -e "${PURPLE}  ~|~  R I T U A L   D E   C A L A M I D A D E  ~|~   ${DEFAULT}"
+echo -e "${PURPLE}  ~|~  R I T U A L   D E   C A L A M I D A D E ! ~|~   ${DEFAULT}"
 echo -e "${PURPLE}=======================================================${DEFAULT}"
 echo ""
 
